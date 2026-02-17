@@ -632,6 +632,12 @@
   .ai-ask-btn:hover { background: rgba(88,166,255,0.20); }
   .ai-ask-btn:disabled { opacity: 0.5; cursor: not-allowed; }
   .ai-ask-btn.loading { animation: ai-pulse 1s infinite; }
+  .ai-cancel-btn {
+    padding: 4px 12px; border-radius: 5px; border: 1px solid #f85149;
+    background: rgba(248,81,73,0.10); color: #f85149; font-size: 11px;
+    cursor: pointer; font-weight: 600; transition: all 0.15s;
+  }
+  .ai-cancel-btn:hover { background: rgba(248,81,73,0.25); }
   @keyframes ai-pulse { 0%,100%{opacity:1}50%{opacity:0.5} }
   .ai-cursor { animation: ai-blink 0.8s step-end infinite; color: var(--accent); font-weight: bold; }
   @keyframes ai-blink { 0%,100%{opacity:1}50%{opacity:0} }
@@ -2879,6 +2885,7 @@ async function callAI(entityType, entityId, messages, responseEl, onDone) {
   var cfg = getAIConfig();
   if (!cfg.endpoint) {
     responseEl.innerHTML = '<p style="color:#f85149;">⚠ No AI endpoint configured. Click the 🤖 AI button in the header to set up.</p>';
+    if (onDone) onDone();
     return;
   }
 
@@ -3103,6 +3110,8 @@ function aiSectionHtml(entityType, entityId) {
     + '<button class="ai-ask-btn" id="ai-ask-btn-' + esc(entityType) + '" '
     + 'data-entity-type="' + esc(entityType) + '" data-entity-id="' + esc(entityId) + '">'
     + 'Ask AI</button>'
+    + '<button class="ai-cancel-btn" id="ai-cancel-btn-' + esc(entityType) + '" '
+    + 'style="display:none;" title="Cancel the current AI request">Cancel</button>'
     + '<button class="env-btn" id="ai-preview-btn-' + esc(entityType) + '" '
     + 'data-entity-type="' + esc(entityType) + '" data-entity-id="' + esc(entityId) + '" '
     + 'style="margin-left:auto;" title="Preview the prompt that will be sent">Preview Prompt</button>'
@@ -3118,6 +3127,7 @@ function aiSectionHtml(entityType, entityId) {
 // Wire the Ask AI and follow-up buttons for a panel
 function wireAISection(entityType, entityId, buildVarsFn) {
   var askBtn = document.getElementById('ai-ask-btn-' + entityType);
+  var cancelBtn = document.getElementById('ai-cancel-btn-' + entityType);
   var previewBtn = document.getElementById('ai-preview-btn-' + entityType);
   var responseEl = document.getElementById('ai-response-' + entityType);
   var followup = document.getElementById('ai-followup-' + entityType);
@@ -3128,6 +3138,26 @@ function wireAISection(entityType, entityId, buildVarsFn) {
   var vars = buildVarsFn();
   var template = getPromptTemplate(entityType);
   var systemPrompt = hydratePrompt(template, vars);
+
+  function setThinking(on) {
+    askBtn.disabled = on;
+    if (on) {
+      askBtn.classList.add('loading');
+      askBtn.textContent = 'Thinking\u2026';
+      cancelBtn.style.display = '';
+    } else {
+      askBtn.classList.remove('loading');
+      askBtn.textContent = 'Ask AI';
+      cancelBtn.style.display = 'none';
+    }
+  }
+
+  // Cancel button
+  cancelBtn.addEventListener('click', function() {
+    if (_currentAIAbort) _currentAIAbort.abort();
+    responseEl.innerHTML = '<p style="color:var(--text-muted);">Request cancelled.</p>';
+    setThinking(false);
+  });
 
   // Restore previous conversation if exists
   var convKey = getConvKey(entityType, entityId);
@@ -3170,11 +3200,13 @@ function wireAISection(entityType, entityId, buildVarsFn) {
     if (!q) return;
     followupInput.value = '';
     followupBtn.disabled = true;
+    setThinking(true);
     var conv = aiConversations[convKey] || [{ role: 'user', content: systemPrompt }];
     conv.push({ role: 'user', content: q });
     aiConversations[convKey] = conv;
     callAI(entityType, entityId, conv, responseEl, function() {
       followupBtn.disabled = false;
+      setThinking(false);
       followupInput.focus();
     });
   }
